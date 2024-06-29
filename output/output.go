@@ -1,11 +1,20 @@
 package output
 
 import (
+	"fmt"
 	librespot "go-librespot"
 )
 
 type Output struct {
-	*output
+	output interface {
+		Pause() error
+		Resume() error
+		Drop() error
+		DelayMs() (int64, error)
+		SetVolume(float32)
+		Error() <-chan error
+		Close() error
+	}
 }
 
 type NewOutputOptions struct {
@@ -41,10 +50,33 @@ type NewOutputOptions struct {
 
 	// InitialVolume specifies the initial output volume.
 	InitialVolume float32
+
+	OutputType string // "alsa" or "rtp"
+
+	RTPAddress string // Address for RTP streaming
 }
 
 func NewOutput(options *NewOutputOptions) (*Output, error) {
-	out, err := newOutput(options.Reader, options.SampleRate, options.ChannelCount, options.Device, options.Mixer, options.InitialVolume)
+	var out interface {
+		Pause() error
+		Resume() error
+		Drop() error
+		DelayMs() (int64, error)
+		SetVolume(float32)
+		Error() <-chan error
+		Close() error
+	}
+	var err error
+
+	switch options.OutputType {
+	case "alsa":
+		out, err = newOutput(options.Reader, options.SampleRate, options.ChannelCount, options.Device, options.Mixer, options.InitialVolume)
+	case "rtp":
+		out, err = newRTPOutput(options.Reader, options.SampleRate, options.ChannelCount, options.RTPAddress, options.InitialVolume)
+	default:
+		return nil, fmt.Errorf("unsupported output type: %s", options.OutputType)
+	}
+
 	if err != nil {
 		return nil, err
 	}

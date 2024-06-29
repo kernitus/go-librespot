@@ -62,7 +62,7 @@ type playerCmdDataSet struct {
 	paused  bool
 }
 
-func NewPlayer(sp *spclient.Spclient, audioKey *audio.KeyProvider, normalisationEnabled bool, normalisationPregain float32, countryCode *string, device, mixer string, volumeSteps uint32, externalVolume bool) (*Player, error) {
+func NewPlayer(sp *spclient.Spclient, audioKey *audio.KeyProvider, normalisationEnabled bool, normalisationPregain float32, countryCode *string, device, mixer string, volumeSteps uint32, externalVolume bool, outputType string, rtpAddress string) (*Player, error) {
 	p := &Player{
 		sp:                   sp,
 		audioKey:             audioKey,
@@ -77,6 +77,8 @@ func NewPlayer(sp *spclient.Spclient, audioKey *audio.KeyProvider, normalisation
 				Device:        device,
 				Mixer:         mixer,
 				InitialVolume: volume,
+				OutputType:    outputType,
+				RTPAddress:    rtpAddress,
 			})
 		},
 		externalVolume: externalVolume,
