@@ -51,9 +51,9 @@ type NewOutputOptions struct {
 	// InitialVolume specifies the initial output volume.
 	InitialVolume float32
 
-	OutputType string // "alsa" or "rtp"
+	OutputType string // "alsa" or "http"
 
-	RTPAddress string // Address for RTP streaming
+	HttpAddress string // Address for HTTP streaming
 }
 
 func NewOutput(options *NewOutputOptions) (*Output, error) {
@@ -71,8 +71,8 @@ func NewOutput(options *NewOutputOptions) (*Output, error) {
 	switch options.OutputType {
 	case "alsa":
 		out, err = newOutput(options.Reader, options.SampleRate, options.ChannelCount, options.Device, options.Mixer, options.InitialVolume)
-	case "rtp":
-		out, err = newRTPOutput(options.Reader, options.SampleRate, options.ChannelCount, options.RTPAddress, options.InitialVolume)
+	case "http":
+		out, err = newHTTPOutput(options.Reader, options.SampleRate, options.ChannelCount, options.HttpAddress, options.InitialVolume)
 	default:
 		return nil, fmt.Errorf("unsupported output type: %s", options.OutputType)
 	}

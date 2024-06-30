@@ -94,7 +94,7 @@ func (app *App) newAppPlayer(creds any) (_ *AppPlayer, err error) {
 		appPlayer.sess.Spclient(), appPlayer.sess.AudioKey(),
 		!app.cfg.NormalisationDisabled, *app.cfg.NormalisationPregain,
 		appPlayer.countryCode, *app.cfg.AudioDevice, *app.cfg.MixerDevice,
-		*app.cfg.VolumeSteps, app.cfg.ExternalVolume, *app.cfg.AudioOutputType, *app.cfg.RTPAddress,
+		*app.cfg.VolumeSteps, app.cfg.ExternalVolume, *app.cfg.AudioOutputType, *app.cfg.HttpAddress,
 	); err != nil {
 		return nil, fmt.Errorf("failed initializing player: %w", err)
 	}
@@ -314,7 +314,7 @@ type Config struct {
 	AudioDevice           *string  `yaml:"audio_device"`
 	MixerDevice           *string  `yaml:"mixer_device"`
 	AudioOutputType       *string  `yaml:"audio_output_type"`
-	RTPAddress            *string  `yaml:"rtp_address"`
+	HttpAddress           *string  `yaml:"http_address"`
 	Bitrate               *int     `yaml:"bitrate"`
 	VolumeSteps           *uint32  `yaml:"volume_steps"`
 	InitialVolume         *uint32  `yaml:"initial_volume"`
@@ -379,9 +379,9 @@ func loadConfig(cfg *Config) error {
 		cfg.AudioOutputType = new(string)
 		*cfg.AudioOutputType = "alsa"
 	}
-	if cfg.RTPAddress == nil {
-		cfg.RTPAddress = new(string)
-		*cfg.RTPAddress = "127.0.0.1:5004"
+	if cfg.HttpAddress == nil {
+		cfg.HttpAddress = new(string)
+		*cfg.HttpAddress = "127.0.0.1:5004"
 	}
 	if cfg.Bitrate == nil {
 		cfg.Bitrate = new(int)

@@ -75,9 +75,9 @@
           "description": "Which audio output type to use. Either of alsa or rtp",
           "default": "alsa"
         },
-        "rtp_address": {
+        "http_address": {
           "type": "string",
-          "description": "RTP address on which to stream output audio",
+          "description": "HTTP address on which to stream output audio",
           "default": "127.0.0.1:5004"
         },
         "server": {
