@@ -107,6 +107,9 @@ type NewOutputOptions struct {
 	//
 	// This is only supported on the pipe backend.
 	OutputPipeFormat string
+
+	// HttpAddress is the address used by the http backend for streaming.
+	HttpAddress string
 }
 
 func NewOutput(options *NewOutputOptions) (Output, error) {
@@ -131,6 +134,12 @@ func NewOutput(options *NewOutputOptions) (Output, error) {
 		return out, nil
 	case "audio-toolbox":
 		out, err := newAudioToolboxOutput(options)
+		if err != nil {
+			return nil, err
+		}
+		return out, nil
+	case "http":
+		out, err := newHTTPOutput(options)
 		if err != nil {
 			return nil, err
 		}
