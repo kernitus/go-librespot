@@ -71,7 +71,8 @@
           "enum": [
             "alsa",
             "pulseaudio",
-            "pipe"
+            "pipe",
+            "http"
           ],
           "default": "alsa"
         },
@@ -114,6 +115,11 @@
             "f32le"
           ],
           "default": "s16le"
+        },
+        "http_output_address": {
+          "type": "string",
+          "description": "The address on which to stream HTTP linear PCM (only for http backend)",
+          "default": "127.0.0.1:5004"
         },
         "server": {
           "type": "object",
@@ -278,9 +284,9 @@
           "default": false
         }
       },
-      "required": [
-      ],
+      "required": [],
       "title": "config"
     }
   }
 }
+

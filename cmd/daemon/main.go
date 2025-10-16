@@ -167,6 +167,7 @@ func (app *App) newAppPlayer(ctx context.Context, creds any) (_ *AppPlayer, err 
 
 		AudioOutputPipe:       app.cfg.AudioOutputPipe,
 		AudioOutputPipeFormat: app.cfg.AudioOutputPipeFormat,
+		HttpOutputAddress:    app.cfg.HttpOutputAddress,
 	},
 	); err != nil {
 		return nil, fmt.Errorf("failed initializing player: %w", err)
@@ -390,6 +391,8 @@ type Config struct {
 	AudioPeriodCount              int       `koanf:"audio_period_count"`
 	AudioOutputPipe               string    `koanf:"audio_output_pipe"`
 	AudioOutputPipeFormat         string    `koanf:"audio_output_pipe_format"`
+	HttpOutputAddress             string    `koanf:"http_output_address"`
+
 	Bitrate                       int       `koanf:"bitrate"`
 	VolumeSteps                   uint32    `koanf:"volume_steps"`
 	InitialVolume                 uint32    `koanf:"initial_volume"`
@@ -474,12 +477,14 @@ func loadConfig(cfg *Config) error {
 		"audio_device":             "default",
 		"audio_output_pipe_format": "s16le",
 		"mixer_control_name":       "Master",
+		"http_output_address":      "127.0.0.1:5004",
 
 		"volume_steps":   100,
 		"initial_volume": 100,
 
 		"credentials.type": "zeroconf",
 		"server.address":   "localhost",
+
 	}, "."), nil)
 
 	// load file configuration (if available)

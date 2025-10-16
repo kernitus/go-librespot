@@ -114,8 +114,9 @@ type Options struct {
 	// CountryCode specifies the country code to use for media restrictions.
 	CountryCode *string
 
-	// AudioBackend specifies the audio backend to use (alsa, pulseaudio, etc).
+	// AudioBackend specifies the audio backend to use (alsa, pulseaudio, pipe, http, etc).
 	AudioBackend string
+
 	// AudioDevice specifies the audio device name.
 	//
 	// This feature is support only for the alsa backend.
@@ -153,6 +154,9 @@ type Options struct {
 	// This is only supported on the pipe backend.
 	AudioOutputPipe string
 
+	// HttpOutputAddress specifies the address for the http backend server (e.g. 127.0.0.1:5004).
+	HttpOutputAddress string
+
 	// AudioOutputPipeFormat is the format of the output pipe.
 	// Available formats are: "s16le", "s32le", "f32le". Default is "s16le".
 	//
@@ -189,6 +193,7 @@ func NewPlayer(opts *Options) (*Player, error) {
 				VolumeUpdate:     opts.VolumeUpdate,
 				OutputPipe:       opts.AudioOutputPipe,
 				OutputPipeFormat: opts.AudioOutputPipeFormat,
+				HttpAddress:      opts.HttpOutputAddress,
 			})
 		},
 
