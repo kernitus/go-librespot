@@ -42,6 +42,34 @@ func (s *SwitchingAudioSource) Done() <-chan struct{} {
 	return s.done
 }
 
+// Reset clears all sources and resets internal state.
+//
+// It also drains the done signal, if present.
+func (s *SwitchingAudioSource) Reset() {
+	s.cond.L.Lock()
+	defer s.cond.L.Unlock()
+
+	// Best-effort close to stop background readers.
+	if c, ok := s.source[true].(io.Closer); ok && c != nil {
+		_ = c.Close()
+	}
+	if c, ok := s.source[false].(io.Closer); ok && c != nil {
+		_ = c.Close()
+	}
+
+	delete(s.source, true)
+	delete(s.source, false)
+	s.which = false
+
+	// Drain done signal to avoid stale notifications.
+	select {
+	case <-s.done:
+	default:
+	}
+
+	s.cond.Broadcast()
+}
+
 func (s *SwitchingAudioSource) Read(p []float32) (n int, err error) {
 	s.cond.L.Lock()
 	defer s.cond.L.Unlock()
@@ -53,7 +81,10 @@ func (s *SwitchingAudioSource) Read(p []float32) (n int, err error) {
 	n, err = s.source[s.which].Read(p)
 	if errors.Is(err, io.EOF) {
 		// notify this source is done
-		s.done <- struct{}{}
+		select {
+		case s.done <- struct{}{}:
+		default:
+		}
 
 		// if there's no other source just let the EOF through
 		if s.source[!s.which] == nil {
@@ -61,6 +92,9 @@ func (s *SwitchingAudioSource) Read(p []float32) (n int, err error) {
 		}
 
 		// delete current source and switch to the other one
+		if c, ok := s.source[s.which].(io.Closer); ok && c != nil {
+			_ = c.Close()
+		}
 		delete(s.source, s.which)
 		s.which = !s.which
 

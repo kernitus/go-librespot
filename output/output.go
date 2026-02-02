@@ -29,6 +29,15 @@ type Output interface {
 	Close() error
 }
 
+// PersistentOutput marks an output that should remain alive across stop/inactive
+// state transitions.
+//
+// This is used for backends that host resources (e.g. a listening HTTP server)
+// which should not be torn down as part of normal playback control flow.
+type PersistentOutput interface {
+	Persistent() bool
+}
+
 type NewOutputOptions struct {
 	Log librespot.Logger
 

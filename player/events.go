@@ -14,6 +14,7 @@ const (
 	EventTypeResume
 	EventTypePause
 	EventTypeStop
+	EventTypeInactive
 	EventTypeNotPlaying
 )
 

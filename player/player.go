@@ -2,6 +2,7 @@ package player
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -69,6 +70,7 @@ const (
 	playerCmdPlay
 	playerCmdPause
 	playerCmdStop
+	playerCmdStopQuiet
 	playerCmdSeek
 	playerCmdPosition
 	playerCmdVolume
@@ -291,15 +293,35 @@ loop:
 				}
 			case playerCmdStop:
 				if out != nil {
-					_ = out.Close()
-					out = nil
-					outErr = make(<-chan error)
-
-					p.log.Tracef("closed output device because of stop command")
+					if po, ok := out.(output.PersistentOutput); ok && po.Persistent() {
+						_ = out.Pause()
+						source.Reset()
+						p.log.Tracef("paused persistent output because of stop command")
+					} else {
+						_ = out.Close()
+						out = nil
+						outErr = make(<-chan error)
+						p.log.Tracef("closed output device because of stop command")
+					}
 				}
 
 				cmd.resp <- struct{}{}
 				p.ev <- Event{Type: EventTypeStop}
+			case playerCmdStopQuiet:
+				if out != nil {
+					if po, ok := out.(output.PersistentOutput); ok && po.Persistent() {
+						_ = out.Pause()
+						p.log.Tracef("paused persistent output because of quiet stop")
+					} else {
+						_ = out.Close()
+						out = nil
+						outErr = make(<-chan error)
+						p.log.Tracef("closed output device because of quiet stop")
+					}
+				}
+				// Ensure reads block until a new stream is set.
+				source.Reset()
+				cmd.resp <- struct{}{}
 			case playerCmdSeek:
 				if out != nil {
 					if err := source.SetPositionMs(cmd.data.(int64)); err != nil {
@@ -337,18 +359,39 @@ loop:
 			}
 		case err := <-outErr:
 			if err != nil {
-				p.log.WithError(err).Errorf("output device failed")
+				if errors.Is(err, output.ErrSinkDisconnected) {
+					p.log.WithError(err).Infof("output sink disconnected")
+				} else {
+					p.log.WithError(err).Errorf("output device failed")
+				}
 			}
 
-			// the current output device has exited, clean it up
-			_ = out.Close()
-			out = nil
-			outErr = make(<-chan error)
-
-			p.log.Tracef("cleared closed output device")
+			// The output device has exited, clean it up.
+			// Persistent outputs must stay alive to keep their hosted resources
+			// (e.g. listening HTTP server) available for reconnection.
+			persistent := false
+			if out != nil {
+				if po, ok := out.(output.PersistentOutput); ok && po.Persistent() {
+					persistent = true
+				}
+			}
+			if !persistent {
+				_ = out.Close()
+				out = nil
+				outErr = make(<-chan error)
+				p.log.Tracef("cleared closed output device")
+			} else {
+				_ = out.Pause()
+				source.Reset()
+				p.log.Tracef("kept persistent output alive after error")
+			}
 
 			// FIXME: this is called even if not needed, like when autoplay starts
-			p.ev <- Event{Type: EventTypeStop}
+			if errors.Is(err, output.ErrSinkDisconnected) {
+				p.ev <- Event{Type: EventTypeInactive}
+			} else {
+				p.ev <- Event{Type: EventTypeStop}
+			}
 		case <-source.Done():
 			p.ev <- Event{Type: EventTypeNotPlaying}
 		}
@@ -408,6 +451,14 @@ func (p *Player) Pause() error {
 func (p *Player) Stop() {
 	resp := make(chan any, 1)
 	p.cmd <- playerCmd{typ: playerCmdStop, resp: resp}
+	<-resp
+}
+
+// StopQuiet stops playback without emitting a stop event.
+// Used for cases where higher layers need to control state transitions.
+func (p *Player) StopQuiet() {
+	resp := make(chan any, 1)
+	p.cmd <- playerCmd{typ: playerCmdStopQuiet, resp: resp}
 	<-resp
 }
 

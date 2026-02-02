@@ -216,9 +216,43 @@ func (p *AppPlayer) handlePlayerEvent(ctx context.Context, ev *player.Event) {
 			},
 		})
 		p.emitMprisUpdate(mpris.Stopped)
+	case player.EventTypeInactive:
+		if err := p.becomeInactive(ctx); err != nil {
+			p.app.log.WithError(err).Warn("failed becoming inactive")
+		}
 	default:
 		panic("unhandled player event")
 	}
+}
+
+func (p *AppPlayer) becomeInactive(ctx context.Context) error {
+	return p.setInactive(ctx, false)
+}
+
+func (p *AppPlayer) setInactive(ctx context.Context, logout bool) error {
+	// Stop audio rendering without emitting an extra stop event.
+	p.player.StopQuiet()
+	p.primaryStream = nil
+	p.secondaryStream = nil
+
+	p.state.reset()
+	if err := p.putConnectState(ctx, connectpb.PutStateReason_BECAME_INACTIVE); err != nil {
+		return fmt.Errorf("failed inactive state put: %w", err)
+	}
+
+	p.schedulePrefetchNext()
+
+	if logout {
+		p.logout <- p
+	}
+
+	p.app.server.Emit(&ApiEvent{
+		Type: ApiEventTypeInactive,
+	})
+	// For local integrations (MPRIS/API), inactive maps closest to stopped.
+	p.emitMprisUpdate(mpris.Stopped)
+
+	return nil
 }
 
 type skipToFunc func(*connectpb.ContextTrack) bool
@@ -747,24 +781,5 @@ func (p *AppPlayer) volumeUpdated(ctx context.Context) {
 }
 
 func (p *AppPlayer) stopPlayback(ctx context.Context) error {
-	p.player.Stop()
-	p.primaryStream = nil
-	p.secondaryStream = nil
-
-	p.state.reset()
-	if err := p.putConnectState(ctx, connectpb.PutStateReason_BECAME_INACTIVE); err != nil {
-		return fmt.Errorf("failed inactive state put: %w", err)
-	}
-
-	p.schedulePrefetchNext()
-
-	if p.app.cfg.ZeroconfEnabled {
-		p.logout <- p
-	}
-
-	p.app.server.Emit(&ApiEvent{
-		Type: ApiEventTypeInactive,
-	})
-
-	return nil
+	return p.setInactive(ctx, p.app.cfg.ZeroconfEnabled)
 }
