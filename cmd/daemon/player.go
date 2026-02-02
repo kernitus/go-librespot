@@ -182,6 +182,22 @@ func (p *AppPlayer) handlePlayerCommand(ctx context.Context, req dealer.RequestP
 		p.state.player.PositionAsOfTimestamp = int64(transferState.Playback.PositionAsOfTimestamp)
 		p.state.setPaused(pause)
 
+		// The transfer state provides PositionAsOfTimestamp at Timestamp.
+		// Advance the position to "now" so we start close to the current point.
+		// This prevents starting a few seconds behind due to command/processing latency.
+		nowMs := time.Now().UnixMilli()
+		if !pause {
+			elapsed := nowMs - p.state.player.Timestamp
+			const maxReasonableElapsed = 10 * 60 * 1000 // 10 minutes in milliseconds
+			if elapsed > 0 && elapsed <= maxReasonableElapsed {
+				p.state.player.PositionAsOfTimestamp += elapsed
+			}
+		}
+		if p.state.player.PositionAsOfTimestamp < 0 {
+			p.state.player.PositionAsOfTimestamp = 0
+		}
+		p.state.player.Timestamp = nowMs
+
 		// current session
 		p.state.player.PlayOrigin = transferState.CurrentSession.PlayOrigin
 		p.state.player.PlayOrigin.DeviceIdentifier = req.SentByDeviceId
