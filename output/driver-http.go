@@ -34,6 +34,8 @@ type httpOutput struct {
 	connID               uint64
 	writer               io.Writer
 	writerConnID         uint64
+	writerCloseCh        chan struct{}
+	writerCloseConnID    uint64
 	lastDisconnectConnID uint64
 
 	connBytes      int64
@@ -49,6 +51,18 @@ type httpOutput struct {
 	srv         *http.Server
 
 	err chan error
+}
+
+func (out *httpOutput) closeActiveConnLocked() {
+	// Stop the current HTTP response handler (if any).
+	if out.writerCloseCh != nil {
+		ch := out.writerCloseCh
+		out.writerCloseCh = nil
+		out.writerCloseConnID = 0
+		close(ch)
+	}
+	// Detach writer so the audio loop stops writing.
+	out.writer = nil
 }
 
 func newHTTPOutput(opts *NewOutputOptions) (*httpOutput, error) {
@@ -243,12 +257,13 @@ func (out *httpOutput) streamHandler(w http.ResponseWriter, r *http.Request) {
 	// Rate limit stream at sampleRate*channels*2 bytes/sec
 	bps := out.sampleRate * out.channelCount * 2
 	rw := NewRateLimitedWriter(w, bps)
+	closeCh := make(chan struct{})
 
 	out.lock.Lock()
 	// Replacing an existing active sink counts as a disconnect of the previous one.
 	prevConnID := out.writerConnID
 	if out.writer != nil {
-		out.writer = nil
+		out.closeActiveConnLocked()
 		out.cond.Signal()
 		out.onConnGoneLocked(prevConnID)
 	}
@@ -256,6 +271,8 @@ func (out *httpOutput) streamHandler(w http.ResponseWriter, r *http.Request) {
 	connID := out.connID
 	out.writer = rw
 	out.writerConnID = connID
+	out.writerCloseCh = closeCh
+	out.writerCloseConnID = connID
 	out.connBytes = 0
 	out.connFirstWrite = time.Time{}
 	out.connPromoted = false
@@ -268,11 +285,18 @@ func (out *httpOutput) streamHandler(w http.ResponseWriter, r *http.Request) {
 	out.cond.Signal()
 	out.lock.Unlock()
 
-	<-r.Context().Done()
+	select {
+	case <-r.Context().Done():
+	case <-closeCh:
+	}
 
 	out.lock.Lock()
 	if out.writerConnID == connID {
 		out.writer = nil
+		if out.writerCloseConnID == connID {
+			out.writerCloseCh = nil
+			out.writerCloseConnID = 0
+		}
 		out.cond.Signal()
 		out.onConnGoneLocked(connID)
 	}
@@ -339,6 +363,8 @@ func (out *httpOutput) Pause() error {
 		out.inactiveTimer = nil
 		out.inactiveConnID = 0
 	}
+	// Force-close the active HTTP stream so Kodi doesn't hang waiting for bytes.
+	out.closeActiveConnLocked()
 	out.cond.Signal()
 	return nil
 }
@@ -393,6 +419,7 @@ func (out *httpOutput) Close() error {
 		return nil
 	}
 	out.closed = true
+	out.closeActiveConnLocked()
 	out.cond.Signal()
 	srv := out.srv
 	out.srv = nil
