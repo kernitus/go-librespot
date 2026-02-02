@@ -13,3 +13,8 @@
 /vcpkg
 /vcpkg_installed
 /dist
+
+# Local artifacts
+/go-librespot-x86_64
+/output.wav
+/stream.sdp

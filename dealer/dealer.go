@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/coder/websocket"
 	librespot "github.com/devgianlu/go-librespot"
-	"nhooyr.io/websocket"
 )
 
 const (
@@ -84,7 +84,7 @@ func (d *Dealer) connect(ctx context.Context) error {
 		return fmt.Errorf("failed obtaining dealer access token: %w", err)
 	}
 
-	if conn, _, err := websocket.Dial(context.Background(), fmt.Sprintf("wss://%s/?access_token=%s", d.addr(ctx), accessToken), &websocket.DialOptions{
+	if conn, _, err := websocket.Dial(ctx, fmt.Sprintf("wss://%s/?access_token=%s", d.addr(ctx), accessToken), &websocket.DialOptions{
 		HTTPClient: d.client,
 		HTTPHeader: http.Header{
 			"User-Agent": []string{librespot.UserAgent()},

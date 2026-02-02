@@ -31,8 +31,6 @@ const (
 
 const MaxStateVolume = 65535
 
-const DisableCheckMediaRestricted = true
-
 const CdnUrlQuarantineDuration = 15 * time.Minute
 
 func ptr[T any](v T) *T {
@@ -518,12 +516,62 @@ func (p *Player) retrieveAudioKey(ctx context.Context, spotId librespot.SpotifyI
 	return p.audioKey.Request(ctx, spotId.Id(), fileId)
 }
 
+// Spotify normalizes to -14 dB LUFS according to ITU-R BS.1770 standard
+// See https://support.spotify.com/us/artists/article/loudness-normalization/
+const spotifyLoudnessTarget = -14.0
+
 func calculateNormalisationFactor(params *audiofilespb.NormalizationParams, pregain float32) float32 {
-	normalisationFactor := float32(math.Pow(10, float64((params.LoudnessDb+pregain)/20)))
-	if normalisationFactor*params.TruePeakDb > 1 {
-		normalisationFactor = 1 / params.TruePeakDb
+	// LoudnessDb is the integrated loudness of the track in LUFS (ITU-R BS.1770)
+	// To normalize, calculate the gain needed to reach Spotify's target of -14 LUFS
+	gainDb := spotifyLoudnessTarget - params.LoudnessDb + pregain
+
+	// Convert gain from dB to linear scale
+	normalisationFactor := float32(math.Pow(10, float64(gainDb/20)))
+
+	// TruePeakDb from audio files response is in dBTP (dB True Peak)
+	truePeakLinear := float32(math.Pow(10, float64(params.TruePeakDb)/20))
+	if truePeakLinear <= 0 {
+		return normalisationFactor
+	}
+
+	// Clamp to avoid exceeding full-scale (0 dBFS) after normalization
+	// If the normalized peak would exceed 1.0, reduce the gain
+	if normalisationFactor*truePeakLinear > 1 {
+		normalisationFactor = 1 / truePeakLinear
 	}
 	return normalisationFactor
+}
+
+func (p *Player) getUnrestrictedTrack(ctx context.Context, spotId librespot.SpotifyId) (*metadatapb.Track, error) {
+	var trackMeta metadatapb.Track
+	err := p.sp.ExtendedMetadataSimple(ctx, spotId, extmetadatapb.ExtensionKind_TRACK_V4, &trackMeta)
+	if err != nil {
+		return nil, fmt.Errorf("failed getting track metadata: %w", err)
+	}
+
+	media := librespot.NewMediaFromTrack(&trackMeta)
+	if !isMediaRestricted(media, *p.countryCode) {
+		return &trackMeta, nil
+	}
+
+	for _, alt := range trackMeta.Alternative {
+		media = librespot.NewMediaFromTrack(alt)
+		if !isMediaRestricted(media, *p.countryCode) {
+			// Clear alternatives to avoid confusion
+			trackMeta.Alternative = nil
+
+			// The alternative track does not have all fields set, copy them over
+			// to the original track metadata.
+			trackMeta.Gid = alt.Gid
+			trackMeta.File = alt.File
+			trackMeta.Preview = alt.Preview
+			trackMeta.OriginalAudio = alt.OriginalAudio
+			return &trackMeta, nil
+		}
+	}
+
+	// We tried all alternatives, still restricted
+	return nil, librespot.ErrMediaRestricted
 }
 
 func (p *Player) NewStream(ctx context.Context, client *http.Client, spotId librespot.SpotifyId, bitrate int, mediaPosition int64) (*Stream, error) {
@@ -538,16 +586,13 @@ func (p *Player) NewStream(ctx context.Context, client *http.Client, spotId libr
 	var media *librespot.Media
 	var file *metadatapb.AudioFile
 	if spotId.Type() == librespot.SpotifyIdTypeTrack {
-		var trackMeta metadatapb.Track
-		err := p.sp.ExtendedMetadataSimple(ctx, spotId, extmetadatapb.ExtensionKind_TRACK_V4, &trackMeta)
+		trackMeta, err := p.getUnrestrictedTrack(ctx, spotId)
 		if err != nil {
-			return nil, fmt.Errorf("failed getting track metadata: %w", err)
+			return nil, err
 		}
 
-		media = librespot.NewMediaFromTrack(&trackMeta)
-		if !DisableCheckMediaRestricted && isMediaRestricted(media, *p.countryCode) {
-			return nil, librespot.ErrMediaRestricted
-		}
+		media = librespot.NewMediaFromTrack(trackMeta)
+		spotId = media.Id()
 
 		var audioFilesResp audiofilespb.AudioFilesExtensionResponse
 		err = p.sp.ExtendedMetadataSimple(ctx, spotId, extmetadatapb.ExtensionKind_AUDIO_FILES, &audioFilesResp)
@@ -588,7 +633,7 @@ func (p *Player) NewStream(ctx context.Context, client *http.Client, spotId libr
 		}
 
 		media = librespot.NewMediaFromEpisode(&episodeMeta)
-		if !DisableCheckMediaRestricted && isMediaRestricted(media, *p.countryCode) {
+		if isMediaRestricted(media, *p.countryCode) {
 			return nil, librespot.ErrMediaRestricted
 		}
 

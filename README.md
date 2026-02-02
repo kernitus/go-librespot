@@ -28,7 +28,7 @@ An example Docker Compose configuration for PulseAudio is available [here](/dock
 
 ### Using Brew
 
-You can also install go-librespot [using Brew](https://formulae.brew.sh/formula/go-librespot) 
+You can also install go-librespot [using Brew](https://formulae.brew.sh/formula/go-librespot)
 on macOS and Linux (thanks @kriive):
 
 ```shell
@@ -39,7 +39,7 @@ brew install go-librespot
 
 To build from source the following prerequisites are necessary:
 
-- Go 1.22 or higher
+- Go 1.25 or higher
 - Libraries: `libogg`, `libvorbis`, `flac`, `libasound2`
 
 To install Go, download it from the [Go website](https://go.dev/dl/).
@@ -70,16 +70,40 @@ The default directory for configuration files is `~/.config/go-librespot`. On ma
 
 The full configuration schema is available [here](/config_schema.json), only the main options are detailed below.
 
-### Zeroconf mode
+### Zeroconf Mode and mDNS Backend Selection
 
-This is the default mode. It uses mDNS auto discovery to allow Spotify clients inside the same network to connect to
-go-librespot. This is also known as Spotify Connect.
+Zeroconf mode enables mDNS auto discovery, allowing Spotify clients inside the same network to connect to go-librespot. This is also known as Spotify Connect.
 
-An example configuration (not required) looks like this:
+**Backend selection:**  
+go-librespot supports two different backends for mDNS service registration:
+
+- **builtin**: (default) Uses the built-in mDNS responder provided by go-librespot itself.  
+- **avahi**: Uses the system's avahi-daemon (via D-Bus) for mDNS service registration.
+
+You can configure which backend to use via the `zeroconf_backend` setting in your configuration file:
 
 ```yaml
-zeroconf_enabled: false # Whether to keep the device discoverable at all times, even if authenticated via other means
-zeroconf_port: 0 # The port to use for Zeroconf, 0 for random
+zeroconf_backend: avahi   # Options: "builtin" (default), "avahi"
+```
+
+Or via the command line:
+
+```shell
+go-librespot -c zeroconf_backend=avahi
+```
+
+#### Which backend should I use?
+
+- Use **avahi** if you want to integrate with an existing Avahi daemon, e.g. on embedded systems, to avoid port conflicts, or to centralize mDNS advertisements with system service management (e.g., using `systemd`).
+    - Compatible with Avahi 0.6.x and later (tested with 0.7 and 0.8).
+- Use **builtin** if you do **not** have Avahi running and want go-librespot to manage its own mDNS advertisements (no extra dependencies required).
+
+#### Example minimal Zeroconf configuration
+
+```yaml
+zeroconf_enabled: true # Whether to keep the device discoverable at all times, even if authenticated via other means
+zeroconf_port: 0       # The port to use for Zeroconf, 0 for random
+zeroconf_backend: avahi
 credentials:
   type: zeroconf
   zeroconf:
@@ -129,6 +153,7 @@ server:
   allow_origin: '' # Value for the Access-Control-Allow-Origin header
   cert_file: '' # Path to certificate file for TLS
   key_file: '' # Path to key file for TLS
+  image_size: 'default' # Album art image size (default, small, large, xlarge)
 ```
 
 For detailed API documentation see [here](/API.md).
@@ -146,6 +171,26 @@ Various configurations for volume control are available:
    volume dependant
 4. **External volume with mixer**: Device volume is synchronized with Spotify volume, output samples are not volume
    dependant, volume changes are not applied to the ALSA mixer
+
+### Audio normalization
+
+go-librespot implements audio normalization according to Spotify's standards, which targets **-14 dB LUFS** (Loudness
+Units relative to Full Scale) based on the **ITU-R BS.1770** standard.
+[Source](https://support.spotify.com/us/artists/article/loudness-normalization/)
+
+Normalization can be configured with the following options:
+
+```yaml
+normalisation_disabled: false # Whether to disable normalization (default: false)
+normalisation_use_album_gain: false # Whether to use album gain instead of track gain (default: false)
+normalisation_pregain: 0 # Pregain in dB to apply before normalization (default: 0)
+```
+
+The pregain is applied on Spotify's -14 dB LUFS target. Spotify suggests the following presets for pregain:
+
+- Loud: -11 dB LUFS, apply a pregain of +3 dB
+- Normal: -14 dB LUFS, apply a pregain of 0 dB
+- Quiet: -19 dB LUFS, apply a pregain of -5 dB
 
 ### Additional configuration
 

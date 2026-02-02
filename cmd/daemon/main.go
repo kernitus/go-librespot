@@ -14,6 +14,7 @@ import (
 
 	librespot "github.com/devgianlu/go-librespot"
 	"github.com/devgianlu/go-librespot/mpris"
+	"github.com/devgianlu/go-librespot/playplay"
 
 	"github.com/devgianlu/go-librespot/apresolve"
 	"github.com/devgianlu/go-librespot/player"
@@ -110,6 +111,12 @@ func NewApp(cfg *Config) (app *App, err error) {
 		app.clientToken = cfg.ClientToken
 	}
 
+	if cfg.FlacEnabled && !playplay.Plugin.IsSupported() {
+		// FLAC decryption keys are available only with the PlayPlay DRM implementation.
+		// Using PlayPlay might get you banned by Spotify.
+		return nil, fmt.Errorf("FLAC playback requires a PlapPlay implementation")
+	}
+
 	return app, nil
 }
 
@@ -167,7 +174,7 @@ func (app *App) newAppPlayer(ctx context.Context, creds any) (_ *AppPlayer, err 
 
 		AudioOutputPipe:       app.cfg.AudioOutputPipe,
 		AudioOutputPipeFormat: app.cfg.AudioOutputPipeFormat,
-		HttpOutputAddress:    app.cfg.HttpOutputAddress,
+		HttpOutputAddress:     app.cfg.HttpOutputAddress,
 	},
 	); err != nil {
 		return nil, fmt.Errorf("failed initializing player: %w", err)
@@ -247,7 +254,7 @@ func (app *App) withAppPlayer(ctx context.Context, appPlayerFunc func(context.Co
 	}
 
 	// start zeroconf server and dispatch
-	z, err := zeroconf.NewZeroconf(app.log, app.cfg.ZeroconfPort, app.cfg.DeviceName, app.deviceId, app.deviceType, app.cfg.ZeroconfInterfacesToAdvertise)
+	z, err := zeroconf.NewZeroconf(app.log, app.cfg.ZeroconfPort, app.cfg.DeviceName, app.deviceId, app.deviceType, app.cfg.ZeroconfInterfacesToAdvertise, app.cfg.ZeroconfBackend == "avahi")
 	if err != nil {
 		return fmt.Errorf("failed initializing zeroconf: %w", err)
 	}
@@ -308,6 +315,9 @@ func (app *App) withAppPlayer(ctx context.Context, appPlayerFunc func(context.Co
 				newAppPlayer, err := appPlayerFunc(ctx)
 				if err != nil {
 					log.WithError(err).Errorf("failed restoring session after logout")
+
+					// unset the zeroconf user
+					z.SetCurrentUser("")
 				} else if newAppPlayer == nil {
 					// unset the zeroconf user
 					z.SetCurrentUser("")
@@ -377,36 +387,37 @@ type Config struct {
 	// finalizer will run, probably closing the lock.
 	configLock *flock.Flock
 
-	LogLevel                      log.Level `koanf:"log_level"`
-	LogDisableTimestamp           bool      `koanf:"log_disable_timestamp"`
-	DeviceId                      string    `koanf:"device_id"`
-	DeviceName                    string    `koanf:"device_name"`
-	DeviceType                    string    `koanf:"device_type"`
-	ClientToken                   string    `koanf:"client_token"`
-	AudioBackend                  string    `koanf:"audio_backend"`
-	AudioDevice                   string    `koanf:"audio_device"`
-	MixerDevice                   string    `koanf:"mixer_device"`
-	MixerControlName              string    `koanf:"mixer_control_name"`
-	AudioBufferTime               int       `koanf:"audio_buffer_time"`
-	AudioPeriodCount              int       `koanf:"audio_period_count"`
-	AudioOutputPipe               string    `koanf:"audio_output_pipe"`
-	AudioOutputPipeFormat         string    `koanf:"audio_output_pipe_format"`
-	HttpOutputAddress             string    `koanf:"http_output_address"`
+	LogLevel              log.Level `koanf:"log_level"`
+	LogDisableTimestamp   bool      `koanf:"log_disable_timestamp"`
+	DeviceId              string    `koanf:"device_id"`
+	DeviceName            string    `koanf:"device_name"`
+	DeviceType            string    `koanf:"device_type"`
+	ClientToken           string    `koanf:"client_token"`
+	AudioBackend          string    `koanf:"audio_backend"`
+	AudioDevice           string    `koanf:"audio_device"`
+	MixerDevice           string    `koanf:"mixer_device"`
+	MixerControlName      string    `koanf:"mixer_control_name"`
+	AudioBufferTime       int       `koanf:"audio_buffer_time"`
+	AudioPeriodCount      int       `koanf:"audio_period_count"`
+	AudioOutputPipe       string    `koanf:"audio_output_pipe"`
+	AudioOutputPipeFormat string    `koanf:"audio_output_pipe_format"`
+	HttpOutputAddress     string    `koanf:"http_output_address"`
 
-	Bitrate                       int       `koanf:"bitrate"`
-	VolumeSteps                   uint32    `koanf:"volume_steps"`
-	InitialVolume                 uint32    `koanf:"initial_volume"`
-	IgnoreLastVolume              bool      `koanf:"ignore_last_volume"`
-	NormalisationDisabled         bool      `koanf:"normalisation_disabled"`
-	NormalisationUseAlbumGain     bool      `koanf:"normalisation_use_album_gain"`
-	NormalisationPregain          float32   `koanf:"normalisation_pregain"`
-	ExternalVolume                bool      `koanf:"external_volume"`
-	ZeroconfEnabled               bool      `koanf:"zeroconf_enabled"`
-	ZeroconfPort                  int       `koanf:"zeroconf_port"`
-	DisableAutoplay               bool      `koanf:"disable_autoplay"`
-	ZeroconfInterfacesToAdvertise []string  `koanf:"zeroconf_interfaces_to_advertise"`
-	MprisEnabled                  bool      `koanf:"mpris_enabled"`
-	FlacEnabled                   bool      `koanf:"flac_enabled"`
+	Bitrate                       int      `koanf:"bitrate"`
+	VolumeSteps                   uint32   `koanf:"volume_steps"`
+	InitialVolume                 uint32   `koanf:"initial_volume"`
+	IgnoreLastVolume              bool     `koanf:"ignore_last_volume"`
+	NormalisationDisabled         bool     `koanf:"normalisation_disabled"`
+	NormalisationUseAlbumGain     bool     `koanf:"normalisation_use_album_gain"`
+	NormalisationPregain          float32  `koanf:"normalisation_pregain"`
+	ExternalVolume                bool     `koanf:"external_volume"`
+	ZeroconfEnabled               bool     `koanf:"zeroconf_enabled"`
+	ZeroconfPort                  int      `koanf:"zeroconf_port"`
+	ZeroconfBackend               string   `koanf:"zeroconf_backend"`
+	DisableAutoplay               bool     `koanf:"disable_autoplay"`
+	ZeroconfInterfacesToAdvertise []string `koanf:"zeroconf_interfaces_to_advertise"`
+	MprisEnabled                  bool     `koanf:"mpris_enabled"`
+	FlacEnabled                   bool     `koanf:"flac_enabled"`
 	Server                        struct {
 		Enabled     bool   `koanf:"enabled"`
 		Address     string `koanf:"address"`
@@ -414,6 +425,8 @@ type Config struct {
 		AllowOrigin string `koanf:"allow_origin"`
 		CertFile    string `koanf:"cert_file"`
 		KeyFile     string `koanf:"key_file"`
+
+		ImageSize string `koanf:"image_size"`
 	} `koanf:"server"`
 	Credentials struct {
 		Type        string `koanf:"type"`
@@ -442,6 +455,10 @@ func loadConfig(cfg *Config) error {
 	}
 	defaultConfigDir := filepath.Join(userConfigDir, "go-librespot")
 	f.StringVar(&cfg.ConfigDir, "config_dir", defaultConfigDir, "the configuration directory")
+
+	var configOverrides []string
+	f.StringArrayVarP(&configOverrides, "conf", "c", nil, "override config values (format: field=value, use field1.field2=value for nested fields)")
+
 	err = f.Parse(os.Args[1:])
 	if err != nil {
 		return err
@@ -483,8 +500,11 @@ func loadConfig(cfg *Config) error {
 		"initial_volume": 100,
 
 		"credentials.type": "zeroconf",
-		"server.address":   "localhost",
 
+		"zeroconf_backend": "builtin",
+
+		"server.address":    "localhost",
+		"server.image_size": "default",
 	}, "."), nil)
 
 	// load file configuration (if available)
@@ -504,6 +524,26 @@ func loadConfig(cfg *Config) error {
 	// load command line configuration
 	if err := k.Load(posflag.Provider(f, ".", k), nil); err != nil {
 		return fmt.Errorf("failed loading command line configuration: %w", err)
+	}
+
+	// apply command line config overrides (-c/--conf flags)
+	if len(configOverrides) > 0 {
+		overrideMap := make(map[string]interface{})
+		for _, override := range configOverrides {
+			parts := strings.SplitN(override, "=", 2)
+			if len(parts) != 2 {
+				return fmt.Errorf("invalid config override format: %s (expected field=value)", override)
+			}
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			if key == "" {
+				return fmt.Errorf("invalid config override: empty field name in %s", override)
+			}
+			overrideMap[key] = value
+		}
+		if err := k.Load(confmap.Provider(overrideMap, "."), nil); err != nil {
+			return fmt.Errorf("failed loading config overrides: %w", err)
+		}
 	}
 
 	// unmarshal configuration
